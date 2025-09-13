@@ -1,10 +1,9 @@
 import streamlit as st
 import pandas as pd
-import csv
-from io import StringIO
+from io import BytesIO
 
 st.set_page_config(page_title="Day Start Compiler", layout="wide")
-st.title("📊 Day Start and Da- End Compiler")
+st.title("📊 Day Start and Day End Compiler")
 
 # File uploader
 uploaded_files = st.file_uploader(
@@ -13,31 +12,19 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True
 )
 
-# Function to detect CSV delimiter
-def detect_delimiter(file):
-    first_bytes = file.read(1024)
-    file.seek(0)
-    sniffer = csv.Sniffer()
-    try:
-        dialect = sniffer.sniff(first_bytes.decode('utf-8'))
-        return dialect.delimiter
-    except:
-        return ','
-
-# Function to read a file robustly
+# Read CSV or Excel robustly
 def read_file(file):
     if file.name.endswith(".csv"):
-        delimiter = detect_delimiter(file)
         df = pd.read_csv(
             file,
-            delimiter=delimiter,
-            dtype=str,  # Force all columns as string
-            converters={"EncounterID": str}
+            dtype=str,               # Force everything as string
+            on_bad_lines='skip',     # Skip malformed lines
+            quoting=0                # Minimal quoting
         )
     else:
         df = pd.read_excel(file, dtype=str)
     
-    # Clean strings
+    # Clean string columns
     for col in df.columns:
         df[col] = df[col].astype(str).str.replace('=', '', regex=False).str.replace('"', '', regex=False).str.strip()
     
@@ -46,11 +33,9 @@ def read_file(file):
     
     return df
 
-# Level calculation
+# Level calculation function
 def get_level(value):
     try:
-        if pd.isna(value):
-            return None
         value = float(value)
         if value <= 249.99:
             return "Level1"
@@ -66,31 +51,27 @@ def get_level(value):
         return None
 
 if uploaded_files:
-    dfs = []
-    for file in uploaded_files:
-        df = read_file(file)
-        dfs.append(df)
-    
+    dfs = [read_file(f) for f in uploaded_files]
     compiled_df = pd.concat(dfs, ignore_index=True)
     compiled_df.drop_duplicates(keep="first", inplace=True)
 
-    # Convert Balance to numeric
+    # Ensure numeric Balance and calculate Level
     if "Balance" in compiled_df.columns:
         compiled_df["Balance"] = compiled_df["Balance"].str.replace(',', '', regex=False).astype(float)
         compiled_df["Level"] = compiled_df["Balance"].apply(get_level)
-    
-    # Age numeric
+
+    # Ensure numeric Age
     if "Age" in compiled_df.columns:
         compiled_df["Age"] = pd.to_numeric(compiled_df["Age"], errors='coerce')
         df_filtered = compiled_df[compiled_df["Age"] > 0]
     else:
         df_filtered = compiled_df.copy()
-    
-    # Sort by Balance
+
+    # Sort by Balance descending
     if "Balance" in compiled_df.columns:
         compiled_df.sort_values(by="Balance", ascending=False, inplace=True)
-    
-    st.subheader("📝 Compiled Data with Levels")
+
+    st.subheader("📝 Compiled Data with Levels (Sorted by Balance)")
     st.dataframe(compiled_df, use_container_width=True)
 
     # Pivot table
@@ -103,15 +84,26 @@ if uploaded_files:
                 row[f"{lvl}_Count"] = lvl_group["EncounterID"].count()
             row["Grand_Total_Count"] = group["EncounterID"].count()
             pivot_data.append(row)
-    
+
     pivot_df = pd.DataFrame(pivot_data)
-    
     st.subheader("📌 Pivot Table (Count)")
     st.dataframe(pivot_df, use_container_width=True)
 
-    # Download CSVs
-    def convert_df(df):
-        return df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
-    
-    st.download_button("⬇️ Download Compiled Data", convert_df(compiled_df), "compiled_data.csv", "text/csv")
-    st.download_button("⬇️ Download Pivot Table", convert_df(pivot_df), "pivot_table.csv", "text/csv")
+    # Download as Excel with proper formatting
+    def to_excel(df_main, df_pivot):
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df_main.to_excel(writer, index=False, sheet_name='Compiled Data')
+            df_pivot.to_excel(writer, index=False, sheet_name='Pivot Table')
+            writer.save()
+        processed_data = output.getvalue()
+        return processed_data
+
+    excel_data = to_excel(compiled_df, pivot_df)
+
+    st.download_button(
+        label="⬇️ Download Compiled Data & Pivot Table (Excel)",
+        data=excel_data,
+        file_name="Compiled_Data_with_Pivot.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
