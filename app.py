@@ -2,83 +2,104 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 
-st.set_page_config(page_title="Day Start and Day End Compiler", layout="wide")
-st.title("📊 Day Start and Day End Compiler")
+st.set_page_config(page_title="CSV to Excel Converter + Compiler", layout="wide")
+st.title("📊 CSV to Excel Converter & Day Start Compiler")
 
-uploaded_files = st.file_uploader(
-    "Upload one or more files (CSV/Excel)",
-    type=["csv", "xlsx"],
-    accept_multiple_files=True
+# --- Step 1: CSV to Excel Converter ---
+st.subheader("Step 1: Convert CSV files to Excel")
+
+csv_files = st.file_uploader(
+    "Upload CSV files to convert to Excel", 
+    type=["csv"], 
+    accept_multiple_files=True,
+    key="csv_convert"
 )
 
-def clean_dataframe(df):
-    # Clean headers
-    df.columns = [str(c).strip().replace('=','').replace('"','') for c in df.columns]
-    # Clean all string data
-    str_cols = df.select_dtypes(include='object').columns
-    for col in str_cols:
-        df[col] = df[col].astype(str).str.replace('=','').str.replace('"','').str.strip()
-    return df
+converted_excel_files = []
 
-def read_as_excel(file):
-    if file.name.endswith(".csv"):
-        # Read CSV safely with quotes and skip bad lines
-        df = pd.read_csv(file, quotechar='"', on_bad_lines='skip')
-    else:
+if csv_files:
+    st.write("✅ Converting CSV to Excel...")
+    for file in csv_files:
+        try:
+            df = pd.read_csv(file, quotechar='"', on_bad_lines='skip')
+            # Clean strings
+            for col in df.select_dtypes(include='object').columns:
+                df[col] = df[col].astype(str).str.replace('=','').str.replace('"','').str.strip()
+            # Convert to in-memory Excel
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False)
+            output.seek(0)
+            converted_excel_files.append((file.name.replace(".csv", ".xlsx"), output))
+            st.success(f"Converted {file.name} to Excel")
+        except Exception as e:
+            st.error(f"Failed to convert {file.name}: {e}")
+
+# --- Step 2: Upload Excel files (original or converted) ---
+st.subheader("Step 2: Upload Excel files for compilation")
+excel_files = st.file_uploader(
+    "Upload Excel files (original or converted from CSV)",
+    type=["xlsx"],
+    accept_multiple_files=True,
+    key="excel_compile"
+)
+
+# Merge converted files into compilation list
+if converted_excel_files:
+    for name, excel_io in converted_excel_files:
+        excel_files.append(excel_io)
+
+# --- Step 3: Compiler Logic ---
+if excel_files:
+    dfs = []
+    for file in excel_files:
         df = pd.read_excel(file)
-    df = clean_dataframe(df)
+        # Clean strings
+        for col in df.select_dtypes(include='object').columns:
+            df[col] = df[col].astype(str).str.replace('=','').str.replace('"','').str.strip()
+        dfs.append(df)
 
-    # Convert to in-memory Excel to standardize
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False)
-    output.seek(0)
-    return pd.read_excel(output)
-
-def get_level(value):
-    try:
-        if pd.isna(value):
-            return None
-        value = float(value)
-        if value <= 249.99: return "Level1"
-        elif value <= 1999.99: return "Level2"
-        elif value <= 9999.99: return "Level3"
-        elif value <= 24999.99: return "Level4"
-        else: return "Level5"
-    except:
-        return None
-
-if uploaded_files:
-    dfs = [read_as_excel(f) for f in uploaded_files]
     compiled_df = pd.concat(dfs, ignore_index=True).drop_duplicates()
 
-    # Ensure important columns exist
+    # Ensure columns exist
     for col in ["EncounterID","FacilityCode","CurrentPayer","Balance","Age"]:
         if col not in compiled_df.columns:
             compiled_df[col] = None
 
-    # Convert Balance and Age to numeric
+    # Numeric conversion
     compiled_df["Balance"] = pd.to_numeric(compiled_df["Balance"].astype(str).str.replace(',',''), errors='coerce')
     compiled_df["Age"] = pd.to_numeric(compiled_df["Age"], errors='coerce')
 
-    # Apply Level
+    # Level calculation
+    def get_level(value):
+        try:
+            if pd.isna(value): return None
+            value = float(value)
+            if value <= 249.99: return "Level1"
+            elif value <= 1999.99: return "Level2"
+            elif value <= 9999.99: return "Level3"
+            elif value <= 24999.99: return "Level4"
+            else: return "Level5"
+        except:
+            return None
+
     compiled_df["Level"] = compiled_df["Balance"].apply(get_level)
 
     # Filter Age>0
     compiled_df = compiled_df[compiled_df["Age"]>0]
 
-    # Sort by Balance descending and reset index
+    # Sort by Balance descending
     compiled_df.sort_values("Balance", ascending=False, inplace=True)
     compiled_df.reset_index(drop=True, inplace=True)
 
     # Display compiled data
-    st.subheader("📝 Compiled Data with Levels")
+    st.subheader("📝 Compiled Data")
     st.dataframe(compiled_df)
 
-    # Create pivot
+    # Pivot table
     pivot_data = []
     if all(col in compiled_df.columns for col in ["CurrentPayer","FacilityCode"]):
-        for (payer,facility), group in compiled_df.groupby(["CurrentPayer","FacilityCode"]):
+        for (payer, facility), group in compiled_df.groupby(["CurrentPayer","FacilityCode"]):
             row = {"CurrentPayer": payer, "FacilityCode": facility}
             for lvl in ["Level5","Level4","Level3","Level2","Level1"]:
                 row[f"{lvl}_Count"] = group[group["Level"]==lvl].shape[0]
