@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 
 st.set_page_config(page_title="Day Start Compiler", layout="wide")
-st.title("📊 Day Start and Day End Compiler")
+st.title("📊 Day Start and Day-End Compiler")
 
 # --- File uploader ---
 uploaded_files = st.file_uploader(
