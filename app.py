@@ -14,19 +14,26 @@ uploaded_files = st.file_uploader(
 # --- Read files ---
 def read_file(file):
     if file.name.endswith(".csv"):
-        return pd.read_csv(file)
+        # Read all columns as string to avoid missing EncounterID
+        try:
+            df = pd.read_csv(file, dtype=str)
+        except:
+            # Fallback with automatic separator detection
+            df = pd.read_csv(file, sep=None, engine='python', dtype=str)
     else:
-        return pd.read_excel(file)
+        df = pd.read_excel(file, dtype=str)  # Read Excel as string
+    return df
 
 # --- Clean string columns ---
 def clean_strings(df):
     str_cols = df.select_dtypes(include='object').columns
     for col in str_cols:
         df[col] = (
-            df[col].astype(str)
-                  .str.replace('=', '', regex=False)
-                  .str.replace('"', '', regex=False)
-                  .str.strip()
+            df[col]
+            .astype(str)
+            .str.replace('=', '', regex=False)
+            .str.replace('"', '', regex=False)
+            .str.strip()
         )
     return df
 
@@ -35,6 +42,7 @@ def get_level(value):
     try:
         if pd.isna(value):
             return None
+        value = float(value)
         if value <= 249.99:
             return "Level1"
         elif value <= 1999.99:
@@ -59,41 +67,30 @@ if uploaded_files:
         # Clean all string columns
         df = clean_strings(df)
         
-        # Clean EncounterID specifically
-        if "EncounterID" in df.columns:
-            df["EncounterID"] = (
-                df["EncounterID"]
+        # Ensure EncounterID, FacilityCode, CurrentPayer are clean strings
+        for col in ["EncounterID", "FacilityCode", "CurrentPayer"]:
+            if col in df.columns:
+                df[col] = df[col].astype(str).str.replace('=', '', regex=False).str.replace('"', '', regex=False).str.strip()
+        
+        # Convert Balance to numeric if exists
+        if "Balance" in df.columns:
+            df["Balance"] = (
+                df["Balance"]
                 .astype(str)
-                .str.replace('=', '', regex=False)
-                .str.replace('"', '', regex=False)
+                .str.replace(',', '', regex=False)
                 .str.strip()
             )
+            df["Balance"] = pd.to_numeric(df["Balance"], errors='coerce')
         
-        # Ensure FacilityCode and CurrentPayer are clean
-        for col in ["FacilityCode", "CurrentPayer"]:
-            if col in df.columns:
-                df[col] = df[col].astype(str).str.strip()
-        
-        # Append to list
         dfs.append(df)
     
     # Concatenate all files
     compiled_df = pd.concat(dfs, ignore_index=True)
     compiled_df.drop_duplicates(keep="first", inplace=True)
     
-    # Convert Balance to numeric
-    balance_col = "Balance"
-    if balance_col in compiled_df.columns:
-        compiled_df[balance_col] = (
-            compiled_df[balance_col]
-            .astype(str)
-            .str.replace(',', '', regex=False)
-            .str.strip()
-        )
-        compiled_df[balance_col] = pd.to_numeric(compiled_df[balance_col], errors='coerce')
-    
     # Calculate Level in column "Level"
-    compiled_df["Level"] = compiled_df[balance_col].apply(get_level)
+    if "Balance" in compiled_df.columns:
+        compiled_df["Level"] = compiled_df["Balance"].apply(get_level)
     
     # Ensure Age numeric
     if "Age" in compiled_df.columns:
@@ -102,8 +99,9 @@ if uploaded_files:
     else:
         df_filtered = compiled_df.copy()
     
-    # Sort by Balance descending
-    compiled_df.sort_values(by=balance_col, ascending=False, inplace=True)
+    # Sort compiled data by Balance descending
+    if "Balance" in compiled_df.columns:
+        compiled_df.sort_values(by="Balance", ascending=False, inplace=True)
     
     st.subheader("📝 Compiled Data with Levels (Sorted by Balance)")
     st.dataframe(compiled_df, use_container_width=True)
