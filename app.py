@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from io import BytesIO
+import csv
 
 st.set_page_config(page_title="Day Start Compiler", layout="wide")
 st.title("📊 Day Start and Day End Compiler")
@@ -17,9 +18,9 @@ def read_file(file):
     if file.name.endswith(".csv"):
         df = pd.read_csv(
             file,
-            dtype=str,               # Force everything as string
+            dtype=str,               # Force all as string
             on_bad_lines='skip',     # Skip malformed lines
-            quoting=0                # Minimal quoting
+            quoting=csv.QUOTE_MINIMAL
         )
     else:
         df = pd.read_excel(file, dtype=str)
@@ -33,7 +34,7 @@ def read_file(file):
     
     return df
 
-# Level calculation function
+# Level calculation
 def get_level(value):
     try:
         value = float(value)
@@ -51,6 +52,7 @@ def get_level(value):
         return None
 
 if uploaded_files:
+    # Read and compile all files
     dfs = [read_file(f) for f in uploaded_files]
     compiled_df = pd.concat(dfs, ignore_index=True)
     compiled_df.drop_duplicates(keep="first", inplace=True)
@@ -71,8 +73,9 @@ if uploaded_files:
     if "Balance" in compiled_df.columns:
         compiled_df.sort_values(by="Balance", ascending=False, inplace=True)
 
+    # Display compiled data
     st.subheader("📝 Compiled Data with Levels (Sorted by Balance)")
-    st.dataframe(compiled_df, use_container_width=True)
+    st.dataframe(compiled_df, width="stretch")
 
     # Pivot table
     pivot_data = []
@@ -87,7 +90,7 @@ if uploaded_files:
 
     pivot_df = pd.DataFrame(pivot_data)
     st.subheader("📌 Pivot Table (Count)")
-    st.dataframe(pivot_df, use_container_width=True)
+    st.dataframe(pivot_df, width="stretch")
 
     # Download as Excel with proper formatting
     def to_excel(df_main, df_pivot):
@@ -95,9 +98,7 @@ if uploaded_files:
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df_main.to_excel(writer, index=False, sheet_name='Compiled Data')
             df_pivot.to_excel(writer, index=False, sheet_name='Pivot Table')
-            writer.save()
-        processed_data = output.getvalue()
-        return processed_data
+        return output.getvalue()
 
     excel_data = to_excel(compiled_df, pivot_df)
 
