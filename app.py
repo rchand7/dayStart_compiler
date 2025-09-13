@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 
 st.set_page_config(page_title="Data Compiler", layout="wide")
-
 st.title("📊 Day Start and Day End Compiler")
 
 # File uploader
@@ -19,49 +18,63 @@ def read_file(file):
     else:
         return pd.read_excel(file)
 
-# Clean string columns
+# Clean all string columns in a dataframe
 def clean_strings(df):
     str_cols = df.select_dtypes(include='object').columns
     for col in str_cols:
-        df[col] = df[col].astype(str).str.replace('=', '', regex=False).str.replace('"', '', regex=False)
+        df[col] = (
+            df[col].astype(str)
+                  .str.replace('=', '', regex=False)
+                  .str.replace('"', '', regex=False)
+                  .str.strip()
+        )
     return df
 
+# Level calculation function
+def get_level(value):
+    try:
+        if pd.isna(value):
+            return None
+        if value <= 249.99:
+            return "Level1"
+        elif value <= 1999.99:
+            return "Level2"
+        elif value <= 9999.99:
+            return "Level3"
+        elif value <= 24999.99:
+            return "Level4"
+        else:
+            return "Level5"
+    except:
+        return None
+
 if uploaded_files:
-    # Read and clean all files
+    # Read, clean, and compile all files
     dfs = []
     for file in uploaded_files:
         df = read_file(file)
         df = clean_strings(df)
         dfs.append(df)
 
-    # Compile all files
     compiled_df = pd.concat(dfs, ignore_index=True)
-
-    # Remove fully identical rows
     compiled_df.drop_duplicates(keep="first", inplace=True)
 
-    # Level formula on column F (6th column, index 5)
-    def get_level(value):
-        try:
-            if value <= 249.99:
-                return "Level1"
-            elif value <= 1999.99:
-                return "Level2"
-            elif value <= 9999.99:
-                return "Level3"
-            elif value <= 24999.99:
-                return "Level4"
-            else:
-                return "Level5"
-        except:
-            return None
+    # Convert target column (6th column, index 5) to numeric
+    col_index = 5
+    compiled_df.iloc[:, col_index] = (
+        compiled_df.iloc[:, col_index]
+        .str.replace(',', '', regex=False)  # Remove commas
+        .str.strip()
+    )
+    compiled_df.iloc[:, col_index] = pd.to_numeric(compiled_df.iloc[:, col_index], errors='coerce')
 
-    compiled_df["Level"] = compiled_df.iloc[:, 5].apply(get_level)
+    # Apply Level function
+    compiled_df["Level"] = compiled_df.iloc[:, col_index].apply(get_level)
 
     st.subheader("📝 Compiled Data with Levels")
     st.dataframe(compiled_df, use_container_width=True)
 
-    # Ensure numeric
+    # Ensure numeric columns for further processing
     compiled_df["Balance"] = pd.to_numeric(compiled_df["Balance"], errors="coerce")
     compiled_df["Age"] = pd.to_numeric(compiled_df["Age"], errors="coerce")
 
