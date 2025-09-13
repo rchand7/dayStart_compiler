@@ -2,15 +2,14 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 
-st.set_page_config(page_title="CSV to Excel Converter + Compiler", layout="wide")
-st.title("📊 CSV to Excel Converter & Day Start Compiler")
+st.set_page_config(page_title="CSV to Excel Compiler", layout="wide")
+st.title("📊 CSV to Excel Compiler & Day Start")
 
-# --- Step 1: CSV to Excel Converter ---
+# --- Step 1: CSV to Excel ---
 st.subheader("Step 1: Convert CSV files to Excel")
-
 csv_files = st.file_uploader(
-    "Upload CSV files to convert to Excel", 
-    type=["csv"], 
+    "Upload CSV files",
+    type=["csv"],
     accept_multiple_files=True,
     key="csv_convert"
 )
@@ -21,43 +20,45 @@ if csv_files:
     st.write("✅ Converting CSV to Excel...")
     for file in csv_files:
         try:
-            df = pd.read_csv(file, quotechar='"', on_bad_lines='skip')
-            # Clean strings
+            df = pd.read_csv(file, quotechar='"', on_bad_lines='skip', dtype=str)
+            # Clean only string columns
             for col in df.select_dtypes(include='object').columns:
-                df[col] = df[col].astype(str).str.replace('=','').str.replace('"','').str.strip()
-            # Convert to in-memory Excel
+                df[col] = df[col].str.replace('=', '').str.replace('"','').str.strip()
+            # Save to BytesIO
             output = BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df.to_excel(writer, index=False)
-            output.seek(0)
-            converted_excel_files.append((file.name.replace(".csv", ".xlsx"), output))
-            st.success(f"Converted {file.name} to Excel")
+            output.seek(0)  # Important!
+            converted_excel_files.append((file.name.replace(".csv",".xlsx"), output))
+            st.success(f"{file.name} converted to Excel")
         except Exception as e:
-            st.error(f"Failed to convert {file.name}: {e}")
+            st.error(f"Failed {file.name}: {e}")
 
 # --- Step 2: Upload Excel files (original or converted) ---
 st.subheader("Step 2: Upload Excel files for compilation")
 excel_files = st.file_uploader(
-    "Upload Excel files (original or converted from CSV)",
+    "Upload Excel files",
     type=["xlsx"],
     accept_multiple_files=True,
     key="excel_compile"
 )
 
-# Merge converted files into compilation list
-if converted_excel_files:
-    for name, excel_io in converted_excel_files:
-        excel_files.append(excel_io)
+# Include converted files automatically
+for _, excel_io in converted_excel_files:
+    excel_files.append(excel_io)
 
-# --- Step 3: Compiler Logic ---
+# --- Step 3: Compile ---
 if excel_files:
     dfs = []
     for file in excel_files:
-        df = pd.read_excel(file)
-        # Clean strings
-        for col in df.select_dtypes(include='object').columns:
-            df[col] = df[col].astype(str).str.replace('=','').str.replace('"','').str.strip()
-        dfs.append(df)
+        try:
+            df = pd.read_excel(file, dtype=str)  # read as string first
+            # Clean string columns
+            for col in df.select_dtypes(include='object').columns:
+                df[col] = df[col].str.replace('=', '').str.replace('"','').str.strip()
+            dfs.append(df)
+        except Exception as e:
+            st.error(f"Failed to read {file}: {e}")
 
     compiled_df = pd.concat(dfs, ignore_index=True).drop_duplicates()
 
@@ -66,7 +67,7 @@ if excel_files:
         if col not in compiled_df.columns:
             compiled_df[col] = None
 
-    # Numeric conversion
+    # Numeric conversions
     compiled_df["Balance"] = pd.to_numeric(compiled_df["Balance"].astype(str).str.replace(',',''), errors='coerce')
     compiled_df["Age"] = pd.to_numeric(compiled_df["Age"], errors='coerce')
 
@@ -84,15 +85,12 @@ if excel_files:
             return None
 
     compiled_df["Level"] = compiled_df["Balance"].apply(get_level)
+    compiled_df = compiled_df[compiled_df["Age"] > 0]
 
-    # Filter Age>0
-    compiled_df = compiled_df[compiled_df["Age"]>0]
-
-    # Sort by Balance descending
+    # Sort by Balance and reset index
     compiled_df.sort_values("Balance", ascending=False, inplace=True)
     compiled_df.reset_index(drop=True, inplace=True)
 
-    # Display compiled data
     st.subheader("📝 Compiled Data")
     st.dataframe(compiled_df)
 
