@@ -11,14 +11,14 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True
 )
 
-# Utility function to read files
+# Read CSV or Excel
 def read_file(file):
     if file.name.endswith(".csv"):
         return pd.read_csv(file)
     else:
         return pd.read_excel(file)
 
-# Clean all string columns in a dataframe
+# Clean string columns
 def clean_strings(df):
     str_cols = df.select_dtypes(include='object').columns
     for col in str_cols:
@@ -30,7 +30,7 @@ def clean_strings(df):
         )
     return df
 
-# Level calculation function
+# Level calculation
 def get_level(value):
     try:
         if pd.isna(value):
@@ -49,7 +49,7 @@ def get_level(value):
         return None
 
 if uploaded_files:
-    # Read, clean, and compile all files
+    # Read and clean all files
     dfs = []
     for file in uploaded_files:
         df = read_file(file)
@@ -59,11 +59,17 @@ if uploaded_files:
     compiled_df = pd.concat(dfs, ignore_index=True)
     compiled_df.drop_duplicates(keep="first", inplace=True)
 
-    # Convert target column (6th column, index 5) to numeric for Level
+    # Ensure ID and key columns remain string
+    for col in ["EncounterID", "FacilityCode", "CurrentPayer"]:
+        if col in compiled_df.columns:
+            compiled_df[col] = compiled_df[col].astype(str).str.strip()
+
+    # Convert numeric column (6th column) for Level calculation
     col_index = 5
     compiled_df.iloc[:, col_index] = (
         compiled_df.iloc[:, col_index]
-        .str.replace(',', '', regex=False)  # Remove commas
+        .astype(str)
+        .str.replace(',', '', regex=False)
         .str.strip()
     )
     compiled_df.iloc[:, col_index] = pd.to_numeric(compiled_df.iloc[:, col_index], errors='coerce')
@@ -71,40 +77,39 @@ if uploaded_files:
     # Apply Level function
     compiled_df["Level"] = compiled_df.iloc[:, col_index].apply(get_level)
 
-    # Ensure numeric columns for further processing
+    # Ensure Balance and Age numeric
     compiled_df["Balance"] = pd.to_numeric(compiled_df["Balance"], errors="coerce")
     compiled_df["Age"] = pd.to_numeric(compiled_df["Age"], errors="coerce")
 
     # Filter Age > 0
     df_filtered = compiled_df[compiled_df["Age"] > 0]
 
-    # Sort compiled data by Balance descending (high to low)
+    # Sort compiled data by Balance descending
     compiled_df.sort_values(by="Balance", ascending=False, inplace=True)
 
     st.subheader("📝 Compiled Data with Levels (Sorted by Balance)")
     st.dataframe(compiled_df, use_container_width=True)
 
-    # Create pivot table
+    # Pivot table
     pivot_data = []
-    for (payer, facility), group in df_filtered.groupby(["CurrentPayer", "FacilityCode"]):
-        row = {"CurrentPayer": payer, "FacilityCode": facility}
-        for lvl in ["Level5", "Level4", "Level3", "Level2", "Level1"]:
-            lvl_group = group[group["Level"] == lvl]
-            row[f"{lvl}_Count"] = lvl_group["EncounterID"].count()
-        row["Grand_Total_Count"] = group["EncounterID"].count()
-        pivot_data.append(row)
+    if "CurrentPayer" in compiled_df.columns and "FacilityCode" in compiled_df.columns:
+        for (payer, facility), group in df_filtered.groupby(["CurrentPayer", "FacilityCode"]):
+            row = {"CurrentPayer": payer, "FacilityCode": facility}
+            for lvl in ["Level5", "Level4", "Level3", "Level2", "Level1"]:
+                lvl_group = group[group["Level"] == lvl]
+                row[f"{lvl}_Count"] = lvl_group["EncounterID"].count()
+            row["Grand_Total_Count"] = group["EncounterID"].count()
+            pivot_data.append(row)
 
     pivot_df = pd.DataFrame(pivot_data)
 
     st.subheader("📌 Effective Pivot Table (Count)")
     st.dataframe(pivot_df, use_container_width=True)
 
-    # --- Download Options ---
+    # Download function
     def convert_df(df):
-        # Ensure all columns are included and properly formatted
         return df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
 
-    # Download compiled data
     st.download_button(
         "⬇️ Download Compiled Data (Sorted by Balance)",
         convert_df(compiled_df),
@@ -112,7 +117,6 @@ if uploaded_files:
         "text/csv"
     )
 
-    # Download pivot table
     st.download_button(
         "⬇️ Download Pivot Table",
         convert_df(pivot_df),
