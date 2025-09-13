@@ -11,30 +11,29 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True
 )
 
-# --- Read files ---
+# --- Function to read files ---
 def read_file(file):
     if file.name.endswith(".csv"):
-        # Read all columns as string to avoid missing EncounterID
-        try:
-            df = pd.read_csv(file, dtype=str)
-        except:
-            # Fallback with automatic separator detection
-            df = pd.read_csv(file, sep=None, engine='python', dtype=str)
+        # Auto-detect separator and read all columns as string
+        df = pd.read_csv(file, sep=None, engine='python', dtype=str)
     else:
-        df = pd.read_excel(file, dtype=str)  # Read Excel as string
+        df = pd.read_excel(file, dtype=str)
+    
+    # Clean all string columns
+    for col in df.columns:
+        df[col] = df[col].astype(str).str.replace('=', '', regex=False).str.replace('"', '', regex=False).str.strip()
+    
+    # Ensure EncounterID is string
+    if "EncounterID" in df.columns:
+        df["EncounterID"] = df["EncounterID"].astype(str).str.strip()
+    
     return df
 
-# --- Clean string columns ---
+# --- Clean other string columns ---
 def clean_strings(df):
     str_cols = df.select_dtypes(include='object').columns
     for col in str_cols:
-        df[col] = (
-            df[col]
-            .astype(str)
-            .str.replace('=', '', regex=False)
-            .str.replace('"', '', regex=False)
-            .str.strip()
-        )
+        df[col] = df[col].astype(str).str.strip()
     return df
 
 # --- Level calculation ---
@@ -64,22 +63,12 @@ if uploaded_files:
         # Standardize column names
         df.columns = df.columns.str.strip().str.replace(' ', '').str.replace('_', '')
         
-        # Clean all string columns
+        # Clean other string columns
         df = clean_strings(df)
         
-        # Ensure EncounterID, FacilityCode, CurrentPayer are clean strings
-        for col in ["EncounterID", "FacilityCode", "CurrentPayer"]:
-            if col in df.columns:
-                df[col] = df[col].astype(str).str.replace('=', '', regex=False).str.replace('"', '', regex=False).str.strip()
-        
-        # Convert Balance to numeric if exists
+        # Convert Balance to numeric
         if "Balance" in df.columns:
-            df["Balance"] = (
-                df["Balance"]
-                .astype(str)
-                .str.replace(',', '', regex=False)
-                .str.strip()
-            )
+            df["Balance"] = df["Balance"].str.replace(',', '', regex=False).str.strip()
             df["Balance"] = pd.to_numeric(df["Balance"], errors='coerce')
         
         dfs.append(df)
@@ -88,7 +77,7 @@ if uploaded_files:
     compiled_df = pd.concat(dfs, ignore_index=True)
     compiled_df.drop_duplicates(keep="first", inplace=True)
     
-    # Calculate Level in column "Level"
+    # Apply Level calculation
     if "Balance" in compiled_df.columns:
         compiled_df["Level"] = compiled_df["Balance"].apply(get_level)
     
@@ -99,10 +88,11 @@ if uploaded_files:
     else:
         df_filtered = compiled_df.copy()
     
-    # Sort compiled data by Balance descending
+    # Sort by Balance descending
     if "Balance" in compiled_df.columns:
         compiled_df.sort_values(by="Balance", ascending=False, inplace=True)
     
+    # Show compiled data
     st.subheader("📝 Compiled Data with Levels (Sorted by Balance)")
     st.dataframe(compiled_df, use_container_width=True)
     
@@ -118,10 +108,11 @@ if uploaded_files:
             pivot_data.append(row)
     
     pivot_df = pd.DataFrame(pivot_data)
+    
     st.subheader("📌 Effective Pivot Table (Count)")
     st.dataframe(pivot_df, use_container_width=True)
     
-    # --- Download CSV ---
+    # --- Download function ---
     def convert_df(df):
         return df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
     
