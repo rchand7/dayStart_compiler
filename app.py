@@ -59,7 +59,7 @@ if uploaded_files:
     compiled_df = pd.concat(dfs, ignore_index=True)
     compiled_df.drop_duplicates(keep="first", inplace=True)
 
-    # Convert target column (6th column, index 5) to numeric
+    # Convert target column (6th column, index 5) to numeric for Level
     col_index = 5
     compiled_df.iloc[:, col_index] = (
         compiled_df.iloc[:, col_index]
@@ -71,15 +71,18 @@ if uploaded_files:
     # Apply Level function
     compiled_df["Level"] = compiled_df.iloc[:, col_index].apply(get_level)
 
-    st.subheader("📝 Compiled Data with Levels")
-    st.dataframe(compiled_df, use_container_width=True)
-
     # Ensure numeric columns for further processing
     compiled_df["Balance"] = pd.to_numeric(compiled_df["Balance"], errors="coerce")
     compiled_df["Age"] = pd.to_numeric(compiled_df["Age"], errors="coerce")
 
     # Filter Age > 0
     df_filtered = compiled_df[compiled_df["Age"] > 0]
+
+    # Sort compiled data by Balance descending (high to low)
+    compiled_df.sort_values(by="Balance", ascending=False, inplace=True)
+
+    st.subheader("📝 Compiled Data with Levels (Sorted by Balance)")
+    st.dataframe(compiled_df, use_container_width=True)
 
     # Create pivot table
     pivot_data = []
@@ -98,13 +101,14 @@ if uploaded_files:
 
     # --- Download Options ---
     def convert_df(df):
-        return df.to_csv(index=False).encode("utf-8")
+        # Ensure all columns are included and properly formatted
+        return df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
 
     # Download compiled data
     st.download_button(
-        "⬇️ Download Compiled Data",
+        "⬇️ Download Compiled Data (Sorted by Balance)",
         convert_df(compiled_df),
-        "compiled_data.csv",
+        "compiled_data_sorted.csv",
         "text/csv"
     )
 
