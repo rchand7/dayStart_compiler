@@ -30,7 +30,7 @@ def clean_strings(df):
         )
     return df
 
-# Level calculation
+# Level calculation function
 def get_level(value):
     try:
         if pd.isna(value):
@@ -49,7 +49,6 @@ def get_level(value):
         return None
 
 if uploaded_files:
-    # Read and clean all files
     dfs = []
     for file in uploaded_files:
         df = read_file(file)
@@ -59,40 +58,40 @@ if uploaded_files:
     compiled_df = pd.concat(dfs, ignore_index=True)
     compiled_df.drop_duplicates(keep="first", inplace=True)
 
-    # Ensure ID and key columns remain string
-    for col in ["FacilityCode", "CurrentPayer"]:
+    # Ensure key ID columns are string
+    for col in ["EncounterID", "FacilityCode", "CurrentPayer"]:
         if col in compiled_df.columns:
             compiled_df[col] = compiled_df[col].astype(str).str.strip()
 
-    # Convert numeric column (6th column) for Level calculation
-    col_index = 5
-    compiled_df.iloc[:, col_index] = (
-        compiled_df.iloc[:, col_index]
-        .astype(str)
-        .str.replace(',', '', regex=False)
-        .str.strip()
-    )
-    compiled_df.iloc[:, col_index] = pd.to_numeric(compiled_df.iloc[:, col_index], errors='coerce')
+    # Convert Balance column (F) to numeric for Level calculation
+    balance_col = "Balance"
+    if balance_col in compiled_df.columns:
+        compiled_df[balance_col] = (
+            compiled_df[balance_col]
+            .astype(str)
+            .str.replace(',', '', regex=False)
+            .str.strip()
+        )
+        compiled_df[balance_col] = pd.to_numeric(compiled_df[balance_col], errors='coerce')
 
-    # Apply Level function
-    compiled_df["Level"] = compiled_df.iloc[:, col_index].apply(get_level)
+    # Apply Level calculation and store in column "Level" (T)
+    compiled_df["Level"] = compiled_df[balance_col].apply(get_level)
 
-    # Ensure Balance and Age numeric
-    compiled_df["Balance"] = pd.to_numeric(compiled_df["Balance"], errors="coerce")
+    # Ensure numeric columns for further processing
     compiled_df["Age"] = pd.to_numeric(compiled_df["Age"], errors="coerce")
 
     # Filter Age > 0
     df_filtered = compiled_df[compiled_df["Age"] > 0]
 
     # Sort compiled data by Balance descending
-    compiled_df.sort_values(by="Balance", ascending=False, inplace=True)
+    compiled_df.sort_values(by=balance_col, ascending=False, inplace=True)
 
     st.subheader("📝 Compiled Data with Levels (Sorted by Balance)")
     st.dataframe(compiled_df, use_container_width=True)
 
-    # Pivot table
+    # Create pivot table
     pivot_data = []
-    if "CurrentPayer" in compiled_df.columns and "FacilityCode" in compiled_df.columns:
+    if all(col in compiled_df.columns for col in ["CurrentPayer", "FacilityCode"]):
         for (payer, facility), group in df_filtered.groupby(["CurrentPayer", "FacilityCode"]):
             row = {"CurrentPayer": payer, "FacilityCode": facility}
             for lvl in ["Level5", "Level4", "Level3", "Level2", "Level1"]:
