@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import io
+from io import BytesIO
 
 st.set_page_config(page_title="Day Start and Day End Compiler", layout="wide")
 st.title("📊 Day Start and Day End Compiler")
@@ -11,72 +11,61 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True
 )
 
-def read_file(file):
+def read_file_as_excel(file):
+    # Read CSV as DataFrame and convert to Excel in memory
     if file.name.endswith(".csv"):
-        # Read CSV safely
         df = pd.read_csv(file, quotechar='"', on_bad_lines='skip')
     else:
         df = pd.read_excel(file)
-    # Standardize headers: remove spaces, quotes, and convert to proper case
+    # Clean headers
     df.columns = [str(c).strip().replace('"','').replace('=','') for c in df.columns]
-    return df
-
-def clean_strings(df):
+    # Clean string data
     str_cols = df.select_dtypes(include='object').columns
     for col in str_cols:
-        df[col] = df[col].astype(str).str.replace('=','',regex=False).str.replace('"','',regex=False).str.strip()
-    return df
+        df[col] = df[col].astype(str).str.replace('"','').str.replace('=','').str.strip()
+    # Convert DataFrame to Excel in memory
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False)
+    output.seek(0)
+    # Read it back as Excel to standardize
+    return pd.read_excel(output)
 
 def get_level(value):
     try:
         if pd.isna(value):
             return None
         value = float(value)
-        if value <= 249.99:
-            return "Level1"
-        elif value <= 1999.99:
-            return "Level2"
-        elif value <= 9999.99:
-            return "Level3"
-        elif value <= 24999.99:
-            return "Level4"
-        else:
-            return "Level5"
+        if value <= 249.99: return "Level1"
+        elif value <= 1999.99: return "Level2"
+        elif value <= 9999.99: return "Level3"
+        elif value <= 24999.99: return "Level4"
+        else: return "Level5"
     except:
         return None
 
 if uploaded_files:
-    dfs = []
-    for file in uploaded_files:
-        df = read_file(file)
-        df = clean_strings(df)
-        dfs.append(df)
-
-    compiled_df = pd.concat(dfs, ignore_index=True)
-    compiled_df.drop_duplicates(keep="first", inplace=True)
-
-    # Ensure key columns exist
+    dfs = [read_file_as_excel(file) for file in uploaded_files]
+    compiled_df = pd.concat(dfs, ignore_index=True).drop_duplicates()
+    
+    # Ensure columns exist
     for col in ["EncounterID","FacilityCode","CurrentPayer","Balance","Age"]:
         if col not in compiled_df.columns:
             compiled_df[col] = None
 
-    # Convert Balance to numeric
-    compiled_df["Balance"] = pd.to_numeric(compiled_df["Balance"].astype(str).str.replace(',','',regex=False), errors='coerce')
+    compiled_df["Balance"] = pd.to_numeric(compiled_df["Balance"].astype(str).str.replace(',',''), errors='coerce')
     compiled_df["Level"] = compiled_df["Balance"].apply(get_level)
     compiled_df["Age"] = pd.to_numeric(compiled_df["Age"], errors='coerce')
-
-    # Filter Age > 0
+    
+    # Filter Age>0
     df_filtered = compiled_df[compiled_df["Age"]>0].copy()
-
-    # Sort by Balance
     compiled_df.sort_values("Balance", ascending=False, inplace=True)
     compiled_df.reset_index(drop=True, inplace=True)
-
-    # Display compiled data
+    
     st.subheader("📝 Compiled Data with Levels")
     st.dataframe(compiled_df)
 
-    # Pivot table
+    # Pivot
     pivot_data = []
     if all(col in df_filtered.columns for col in ["CurrentPayer","FacilityCode"]):
         for (payer,facility), group in df_filtered.groupby(["CurrentPayer","FacilityCode"]):
