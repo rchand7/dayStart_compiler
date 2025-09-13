@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 
 st.set_page_config(page_title="Day Start Compiler", layout="wide")
-st.title("📊 Day Start and Day-End Compiler")
+st.title("📊 Day Start and Day End Compiler")
 
 # --- File uploader ---
 uploaded_files = st.file_uploader(
@@ -14,9 +14,19 @@ uploaded_files = st.file_uploader(
 # --- Function to read files ---
 def read_file(file):
     if file.name.endswith(".csv"):
-        # Auto-detect separator and read all columns as string
-        df = pd.read_csv(file, sep=None, engine='python', dtype=str)
+        # Read CSV with converters to force EncounterID as string
+        try:
+            df = pd.read_csv(
+                file,
+                sep=None,  # Auto-detect separator
+                engine='python',
+                converters={"EncounterID": str},
+                dtype=str  # Force all columns as string
+            )
+        except:
+            df = pd.read_csv(file, dtype=str)
     else:
+        # Excel
         df = pd.read_excel(file, dtype=str)
     
     # Clean all string columns
