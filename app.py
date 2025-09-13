@@ -15,8 +15,12 @@ uploaded_files = st.file_uploader(
 # --- Read files ---
 def read_file(file):
     if file.name.endswith(".csv"):
-        # Read CSV with proper parsing
+        # Convert CSV to Excel in memory
         df = pd.read_csv(file, quotechar='"', on_bad_lines='skip')
+        excel_buffer = io.BytesIO()
+        df.to_excel(excel_buffer, index=False)
+        excel_buffer.seek(0)
+        df = pd.read_excel(excel_buffer)
     else:
         df = pd.read_excel(file)
     return df
@@ -86,7 +90,7 @@ if uploaded_files:
     compiled_df.sort_values(by="Balance", ascending=False, inplace=True)
     compiled_df.reset_index(drop=True, inplace=True)
 
-    # --- Use EncounterID as index if exists ---
+    # --- Set EncounterID as index ---
     if "EncounterID" in compiled_df.columns:
         compiled_df.set_index("EncounterID", inplace=True)
 
