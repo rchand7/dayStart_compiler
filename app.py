@@ -1,9 +1,9 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title=" Data Compiler", layout="wide")
+st.set_page_config(page_title="Data Compiler", layout="wide")
 
-st.title("📊 Day Start and Day End Compiler ")
+st.title("📊 Day Start and Day End Compiler")
 
 # File uploader
 uploaded_files = st.file_uploader(
@@ -12,18 +12,32 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True
 )
 
-# Utility function
+# Utility function to read files
 def read_file(file):
     if file.name.endswith(".csv"):
         return pd.read_csv(file)
     else:
         return pd.read_excel(file)
 
+# Clean string columns
+def clean_strings(df):
+    str_cols = df.select_dtypes(include='object').columns
+    for col in str_cols:
+        df[col] = df[col].astype(str).str.replace('=', '', regex=False).str.replace('"', '', regex=False)
+    return df
+
 if uploaded_files:
-    dfs = [read_file(file) for file in uploaded_files]
+    # Read and clean all files
+    dfs = []
+    for file in uploaded_files:
+        df = read_file(file)
+        df = clean_strings(df)
+        dfs.append(df)
+
+    # Compile all files
     compiled_df = pd.concat(dfs, ignore_index=True)
 
-    # Remove only fully identical rows
+    # Remove fully identical rows
     compiled_df.drop_duplicates(keep="first", inplace=True)
 
     # Level formula on column F (6th column, index 5)
@@ -54,9 +68,8 @@ if uploaded_files:
     # Filter Age > 0
     df_filtered = compiled_df[compiled_df["Age"] > 0]
 
-    # Create effective pivot
+    # Create pivot table
     pivot_data = []
-
     for (payer, facility), group in df_filtered.groupby(["CurrentPayer", "FacilityCode"]):
         row = {"CurrentPayer": payer, "FacilityCode": facility}
         for lvl in ["Level5", "Level4", "Level3", "Level2", "Level1"]:
@@ -67,12 +80,7 @@ if uploaded_files:
 
     pivot_df = pd.DataFrame(pivot_data)
 
-    # Format balances
-    balance_cols = [col for col in pivot_df.columns if "Balance" in col]
-    for col in balance_cols:
-        pivot_df[col] = pivot_df[col].apply(lambda x: f"${x:,.2f}")
-
-    st.subheader("📌 Effective Pivot Table (Count )")
+    st.subheader("📌 Effective Pivot Table (Count)")
     st.dataframe(pivot_df, use_container_width=True)
 
     # --- Download Options ---
@@ -94,4 +102,3 @@ if uploaded_files:
         "pivot_table.csv",
         "text/csv"
     )
-
