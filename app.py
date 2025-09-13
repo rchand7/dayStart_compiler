@@ -59,7 +59,7 @@ if uploaded_files:
     compiled_df.drop_duplicates(keep="first", inplace=True)
 
     # Ensure key ID columns are string
-    for col in ["EncounterID", "FacilityCode", "CurrentPayer"]:
+    for col in ["FacilityCode", "CurrentPayer"]:
         if col in compiled_df.columns:
             compiled_df[col] = compiled_df[col].astype(str).str.strip()
 
