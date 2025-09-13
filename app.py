@@ -9,18 +9,19 @@ uploaded_files = st.file_uploader(
     "Upload CSV or Excel files", type=["csv", "xlsx"], accept_multiple_files=True
 )
 
-def read_csv_as_excel(file):
-    """Read CSV as string, clean it, then save to in-memory Excel"""
-    df = pd.read_csv(file, dtype=str, keep_default_na=False)
+def read_csv_fixed(file):
+    """Read CSV robustly using correct quoting and clean formulas"""
+    try:
+        # Force all columns to string to prevent type issues
+        df = pd.read_csv(file, dtype=str, keep_default_na=False, quotechar='"', encoding='utf-8')
+    except:
+        # Fallback with latin1 encoding
+        df = pd.read_csv(file, dtype=str, keep_default_na=False, quotechar='"', encoding='latin1')
     # Remove = and " from all string columns
     str_cols = df.select_dtypes(include='object').columns
     for col in str_cols:
         df[col] = df[col].str.replace('=', '', regex=False).str.replace('"', '', regex=False).str.strip()
-    # Save to Excel in memory
-    excel_buffer = BytesIO()
-    df.to_excel(excel_buffer, index=False)
-    excel_buffer.seek(0)
-    return pd.read_excel(excel_buffer, dtype=str)
+    return df
 
 def get_level(balance):
     try:
@@ -42,10 +43,10 @@ if uploaded_files:
     dfs = []
     for file in uploaded_files:
         if file.name.endswith(".csv"):
-            df = read_csv_as_excel(file)
+            df = read_csv_fixed(file)
         else:
             df = pd.read_excel(file, dtype=str)
-            # Clean strings for Excel too
+            # Clean Excel strings
             str_cols = df.select_dtypes(include='object').columns
             for col in str_cols:
                 df[col] = df[col].str.replace('=', '', regex=False).str.replace('"', '', regex=False).str.strip()
@@ -54,21 +55,21 @@ if uploaded_files:
     compiled_df = pd.concat(dfs, ignore_index=True)
     compiled_df.drop_duplicates(keep="first", inplace=True)
 
-    # Convert Balance column (F) to numeric
-    balance_col = compiled_df.columns[5]
+    # Convert Balance column (F) to numeric for level calculation
+    balance_col = compiled_df.columns[5]  # Adjust if F column is not index 5
     compiled_df[balance_col] = pd.to_numeric(compiled_df[balance_col].str.replace(',', '', regex=False), errors='coerce')
 
-    # Level column (T)
+    # Calculate Level
     compiled_df["Level"] = compiled_df[balance_col].apply(get_level)
 
-    # Sort by Balance
+    # Sort by Balance descending and reset index
     compiled_df.sort_values(by=balance_col, ascending=False, inplace=True)
     compiled_df.reset_index(drop=True, inplace=True)
 
     st.subheader("Compiled Data")
     st.dataframe(compiled_df.astype(str), width='stretch')
 
-    # Pivot Table
+    # Pivot table
     if all(col in compiled_df.columns for col in ["CurrentPayer", "FacilityCode", "EncounterID", "Level"]):
         pivot_data = []
         for (payer, facility), group in compiled_df.groupby(["CurrentPayer", "FacilityCode"]):
@@ -81,7 +82,7 @@ if uploaded_files:
         st.subheader("Pivot Table")
         st.dataframe(pivot_df.astype(str), width='stretch')
 
-    # Downloads
+    # Download buttons
     def convert_csv(df):
         return df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
 
