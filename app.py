@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 
-st.set_page_config(page_title="CSV to Excel Compiler", layout="wide")
+st.set_page_config(page_title="CSV to Excel Converter + Compiler", layout="wide")
 st.title("📊 CSV to Excel Converter & Day Start Compiler")
 
 # --- Step 1: CSV to Excel Converter ---
@@ -35,22 +35,21 @@ if csv_files:
         except Exception as e:
             st.error(f"Failed to convert {file.name}: {e}")
 
-# --- Step 2: Upload Excel files for compilation ---
-st.subheader("Step 2: Upload Excel files (original or converted)")
-
+# --- Step 2: Upload Excel files (original or converted) ---
+st.subheader("Step 2: Upload Excel files for compilation")
 excel_files = st.file_uploader(
-    "Upload Excel files for compilation",
+    "Upload Excel files (original or converted from CSV)",
     type=["xlsx"],
     accept_multiple_files=True,
     key="excel_compile"
 )
 
-# Include converted files in the list
+# Merge converted files into compilation list
 if converted_excel_files:
-    for name, excel_io in converted_excel_files:
+    for _, excel_io in converted_excel_files:
         excel_files.append(excel_io)
 
-# --- Step 3: Compile Data ---
+# --- Step 3: Compiler Logic ---
 if excel_files:
     dfs = []
     for file in excel_files:
@@ -62,7 +61,7 @@ if excel_files:
 
     compiled_df = pd.concat(dfs, ignore_index=True).drop_duplicates()
 
-    # Ensure required columns exist
+    # Ensure necessary columns exist
     for col in ["EncounterID","FacilityCode","CurrentPayer","Balance","Age"]:
         if col not in compiled_df.columns:
             compiled_df[col] = None
@@ -86,18 +85,18 @@ if excel_files:
 
     compiled_df["Level"] = compiled_df["Balance"].apply(get_level)
 
-    # Filter Age>0
+    # Filter Age > 0
     compiled_df = compiled_df[compiled_df["Age"]>0]
 
-    # Sort by Balance descending
+    # Sort by Balance descending and reset index
     compiled_df.sort_values("Balance", ascending=False, inplace=True)
     compiled_df.reset_index(drop=True, inplace=True)
 
-    # --- Display compiled data ---
+    # Display compiled data
     st.subheader("📝 Compiled Data")
-    st.dataframe(compiled_df, width="stretch")
+    st.dataframe(compiled_df)  # removed width param to avoid StreamlitInvalidWidthError
 
-    # --- Pivot Table ---
+    # Pivot table
     pivot_data = []
     if all(col in compiled_df.columns for col in ["CurrentPayer","FacilityCode"]):
         for (payer, facility), group in compiled_df.groupby(["CurrentPayer","FacilityCode"]):
@@ -109,9 +108,9 @@ if excel_files:
     pivot_df = pd.DataFrame(pivot_data)
 
     st.subheader("📌 Pivot Table")
-    st.dataframe(pivot_df, width="stretch")
+    st.dataframe(pivot_df)
 
-    # --- Download Buttons ---
+    # Download buttons
     def convert_df(df):
         return df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
 
